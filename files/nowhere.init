@@ -1,0 +1,50 @@
+#!/bin/sh /etc/rc.common
+
+USE_PROCD=1
+
+START=90
+STOP=10
+
+PROG=/usr/bin/nowhere
+
+append_env() {
+	procd_append_param env "$1"
+}
+
+start_instance() {
+	local section="$1"
+	local enabled url user group
+
+	config_get_bool enabled "$section" enabled 0
+	[ "$enabled" -eq 1 ] || return 0
+	config_get url "$section" url
+	config_get user "$section" user
+	config_get group "$section" group
+
+	if [ -z "$url" ]; then
+		logger -t nowhere -p daemon.err "$section: url is required"
+		return 1
+	fi
+
+	procd_open_instance "$section"
+	procd_set_param command "$PROG" "$url"
+	config_list_foreach "$section" env append_env
+	[ -z "$user" ] || procd_set_param user "$user"
+	[ -z "$group" ] || procd_set_param group "$group"
+	procd_set_param respawn 3600 5 5
+	procd_set_param term_timeout 15
+	procd_set_param stdout 1
+	procd_set_param stderr 1
+	procd_set_param limits nofile="65536 65536"
+	procd_close_instance
+}
+
+start_service() {
+	config_load nowhere
+	config_foreach start_instance instance
+}
+
+service_triggers() {
+	procd_add_reload_trigger nowhere
+	procd_add_interface_trigger "interface.*" wan /etc/init.d/nowhere restart
+}

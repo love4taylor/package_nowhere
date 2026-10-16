@@ -1,0 +1,42 @@
+# SDKs, upstream source downloads and build output
+/openwrt-sdk-*/
+/openwrt-sdk-*.tar.*
+/Nowhere-*/
+/Nowhere-*.tar.*
+/feed/
+/artifacts/
+/dist/
+/bin/
+/build_dir/
+/staging_dir/
+/dl/
+/tmp/
+/logs/
+/release-notes.md
+*.apk
+*.ipk
+*.log
+
+# Python caches and local environments
+__pycache__/
+*.py[cod]
+/.venv/
+/venv/
+
+# Local settings and credentials
+/.codex/
+/.agents/
+/.codegraph/
+/.idea/
+/.vscode/
+/.env
+/.env.*
+!/.env.example
+/key-build
+/private-key.pem
+
+# Editor and OS temporary files
+*~
+*.swp
+*.swo
+.DS_Store

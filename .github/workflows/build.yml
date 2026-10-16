@@ -1,0 +1,139 @@
+name: Build OpenWrt packages
+
+on:
+  push:
+    branches: ['**']
+    tags: ['v*-r*']
+    paths:
+      - Makefile
+      - 'files/**'
+      - 'patches/**'
+      - 'src/**'
+      - '.github/workflows/**'
+      - '.github/scripts/**'
+  pull_request:
+    paths:
+      - Makefile
+      - 'files/**'
+      - 'patches/**'
+      - 'src/**'
+      - '.github/workflows/**'
+      - '.github/scripts/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.ref_type != 'tag' }}
+
+jobs:
+  prepare:
+    runs-on: ubuntu-24.04
+    outputs:
+      version: ${{ steps.metadata.outputs.version }}
+      tag: ${{ steps.metadata.outputs.tag }}
+      matrix: ${{ steps.metadata.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Validate version and release tag
+        id: metadata
+        run: python3 .github/scripts/ci.py metadata
+      - name: Check init script syntax
+        run: sh -n files/nowhere.init
+
+  build:
+    needs: prepare
+    name: ${{ matrix.arch }} / ${{ matrix.format }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.prepare.outputs.matrix) }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Prepare package feed
+        run: |
+          mkdir -p feed/nowhere artifacts
+          cp Makefile feed/nowhere/
+          cp -a files feed/nowhere/
+          for directory in patches src; do
+            if [ -d "$directory" ]; then
+              cp -a "$directory" feed/nowhere/
+            fi
+          done
+          # Give the action's patch refresh check an index to compare against.
+          git -C feed init --quiet
+          git -C feed add nowhere
+      - name: Make room for the Rust toolchain build
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc
+          df -h .
+      - name: Build with the official OpenWrt SDK action
+        uses: openwrt/gh-action-sdk@7fc2640243284ecc44f4a9c3f749a61746ee02cb # v11
+        env:
+          ARCH: ${{ matrix.arch }}-${{ matrix.sdk }}
+          CONTAINER: ghcr.io/openwrt/sdk
+          FEED_DIR: ${{ github.workspace }}/feed
+          FEEDNAME: nowhere_ci
+          ARTIFACTS_DIR: ${{ github.workspace }}/artifacts
+          PACKAGES: nowhere
+          BUILD_LOG: '1'
+          INDEX: '0'
+          V: s
+          # Syntax is checked in prepare; keep the source init script intact.
+          NO_SHFMT_CHECK: '1'
+      - name: Require and collect the Nowhere package
+        env:
+          PACKAGE_ARCH: ${{ matrix.arch }}
+          PACKAGE_FORMAT: ${{ matrix.format }}
+        run: |
+          python3 .github/scripts/ci.py collect \
+            --root artifacts --arch "$PACKAGE_ARCH" \
+            --format "$PACKAGE_FORMAT" --destination dist
+      - name: Upload package
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: packages-${{ matrix.arch }}-${{ matrix.format }}
+          path: dist/*
+          if-no-files-found: error
+          retention-days: 14
+      - name: Upload build logs
+        if: ${{ always() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: logs-${{ matrix.arch }}-${{ matrix.format }}
+          path: artifacts/logs/
+          if-no-files-found: ignore
+          retention-days: 7
+
+  release:
+    if: ${{ github.event_name == 'push' && github.ref_type == 'tag' }}
+    needs: [prepare, build]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Download all package artifacts
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          pattern: packages-*
+          merge-multiple: true
+          path: dist
+      - name: Verify the complete matrix and generate checksums
+        run: python3 .github/scripts/ci.py release --directory dist --notes release-notes.md
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ needs.prepare.outputs.tag }}
+        run: |
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            gh release upload "$RELEASE_TAG" dist/* --clobber
+          else
+            gh release create "$RELEASE_TAG" dist/* \
+              --verify-tag --title "Nowhere $RELEASE_TAG" \
+              --notes-file release-notes.md
+          fi
