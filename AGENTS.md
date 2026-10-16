@@ -11,6 +11,7 @@
 | `files/nowhere.init` | procd 多实例、环境变量、重启和重载逻辑 |
 | `.github/workflows/build.yml` | 编译测试、产物上传和 tag 发布 |
 | `.github/scripts/ci.py` | 构建矩阵、版本校验、产物命名和 Release 完整性检查 |
+| `.github/scripts/rust-cache.py` | 官方 SDK Action 的缓存接入、Rust 分发包恢复和校验 |
 | `.gitignore` | SDK、源码下载、编译产物、缓存和本地配置的忽略规则 |
 | `LICENSE` | GNU GPLv3 许可证全文；本仓库采用 `GPL-3.0-only` |
 | `README.md` | 面向使用者的下载、安装、配置、升级、排错与自行编译说明 |
@@ -31,7 +32,7 @@ README 保留使用者需要的信息，包括软件包架构、格式和 ABI �
 
 ## 开发环境与编译
 
-本地语法和元数据检查需要 POSIX shell、Python 3；`ci.py` 只依赖 Python 标准库。工作流检查使用 `actionlint`。完整编译需要 x86_64 Linux、匹配目标的 OpenWrt SDK、SDK 主机依赖及 `packages` feed 的 Rust 构建规则。
+本地语法和元数据检查需要 POSIX shell、Python 3；CI 辅助脚本只依赖 Python 标准库。工作流检查使用 `actionlint`。完整编译需要 x86_64 Linux、匹配目标的 OpenWrt SDK、SDK 主机依赖及 `packages` feed 的 Rust 构建规则。
 
 SDK 初始化和包链接步骤见 README 的“自行编译”。从 SDK 根目录运行：
 
@@ -72,7 +73,7 @@ git push origin v3.0.1-r1
 
 ## CI 与产物约定
 
-使用官方 [openwrt/gh-action-sdk](https://github.com/openwrt/gh-action-sdk) 和 `ghcr.io/openwrt/sdk`，Action 引用固定 commit。SDK 版本与矩阵以 `.github/scripts/ci.py` 为准，当前为 OpenWrt 24.10.7 / IPK 和 25.12.5 / APK，共 12 组。
+使用官方 [openwrt/gh-action-sdk](https://github.com/openwrt/gh-action-sdk) 和 `ghcr.io/openwrt/sdk`，Action 按固定 commit 检出到临时 `.ci/sdk-action/`，接入 Rust 缓存后以本地 Action 执行。SDK 版本与矩阵以 `.github/scripts/ci.py` 为准，当前为 OpenWrt 24.10.7 / IPK 和 25.12.5 / APK，共 12 组。
 
 前五组架构在两种格式下相同：`aarch64_cortex-a53`、`aarch64_cortex-a72`、`aarch64_cortex-a76`、`aarch64_generic`、`x86_64`。RISC-V 在 IPK SDK 中为 `riscv64_riscv64`，在 APK SDK 中为 `riscv64_generic`。调整 SDK 时重新核对官方架构和容器标签，并同步 README 的兼容信息。
 
@@ -93,6 +94,14 @@ nowhere_3.0.1-r1_aarch64_cortex-a53.ipk
 ```
 
 `collect` 要求每个矩阵恰好生成一个非空 Nowhere 包，防止 Action 跳过不支持的架构却返回成功。`release` 要求全部 12 个预期包齐全且没有额外文件，然后生成校验和与发布说明。保留这些检查和 Release 对整个 build job 的依赖。
+
+### Rust 工具链缓存
+
+使用 GitHub 官方 `actions/cache/restore` 与 `actions/cache/save`，仅缓存 Rust 构建产生的分发安装包，包括 rustc、Cargo、目标标准库、LLVM tools 和 Rust 源码组件。不要缓存整个 SDK 或庞大的 Rust/LLVM 中间构建目录。
+
+缓存按运行平台、SDK、架构和缓存脚本版本隔离。恢复后再次比较 SDK 配置、工具链信息、GCC 文件与 Rust feed 规则的指纹，并逐个校验安装包 SHA-256；不匹配或损坏时重新编译。Nowhere 自身版本和打包文件不直接参与缓存键。
+
+接入代码只包装 Rust 的 `Host/Compile`，保留 SDK 原有的准备、配置、安装和 stamp 规则；上游规则结构变化时应重新核对。缓存命中时复制分发包后继续执行原有安装步骤，未命中时在源码编译成功后导出。Rust 编译完成后，即使后续 Nowhere 编译失败，也可保存工具链缓存；命中时不重复上传。缓存是加速手段，其保留时间受 GitHub 缓存容量和清理策略约束。
 
 ## 检查与验证
 
@@ -115,6 +124,8 @@ actionlint .github/workflows/build.yml
 ```
 
 本仓库没有独立的单元测试套件。按改动验证实际行为：修改 `ci.py` 时检查正确与错误 tag、12 组矩阵、缺失/空/重复产物，以及 Release 完整性与 SHA-256；临时测试数据放在仓库外。
+
+修改 `rust-cache.py` 时，通过 GNU make 实际执行包装后的 `Host/Compile`，验证首次编译保存、命中跳过编译、指纹变化和损坏回退，以及编译失败的退出状态。核对官方 Action 接入位置及 Rust 安装规则保持完整。
 
 修改 Makefile 或运行文件后，使用相应 SDK 编译并检查包内的 `/usr/bin/nowhere`、`/etc/config/nowhere`、`/etc/init.d/nowhere` 与依赖元数据。没有运行完整矩阵时，明确报告已验证范围，不把静态检查视为跨架构编译成功。
 

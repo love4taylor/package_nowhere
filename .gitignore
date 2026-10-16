@@ -4,6 +4,7 @@
 /Nowhere-*/
 /Nowhere-*.tar.*
 /feed/
+/.ci/
 /artifacts/
 /dist/
 /bin/
