@@ -38,13 +38,24 @@ def configure_action(args):
     anchor = 'group "make defconfig"\nmake defconfig\nendgroup\n'
     if source.count(anchor) != 1:
         raise ValueError("Official SDK entrypoint changed: cannot place Rust cache hook")
+    action_file = action / "action.yml"
+    action_source = action_file.read_text()
+    cache_lines = (
+        "        cache-to: type=gha,mode=max,scope=${{ env.CONTAINER }}-${{ env.ARCH }}\n",
+        "        cache-from: type=gha,scope=${{ env.CONTAINER }}-${{ env.ARCH }}\n",
+    )
+    if any(action_source.count(line) != 1 for line in cache_lines):
+        raise ValueError("Official SDK action cache settings changed")
     hook = (
         '\ngroup "prepare Rust toolchain cache"\n'
         'python3 /feed/.ci/rust-cache.py prepare --sdk-root "$PWD"\n'
         'endgroup\n'
     )
     entrypoint.write_text(source.replace(anchor, anchor + hook))
-    print("Added Rust cache hook to the pinned official SDK action")
+    for line in cache_lines:
+        action_source = action_source.replace(line, "")
+    action_file.write_text(action_source)
+    print("Added Rust cache hook and disabled SDK Docker layer cache")
 
 
 def prepare(args, control):
