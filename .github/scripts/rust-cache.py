@@ -9,6 +9,9 @@ from pathlib import Path
 import re
 import shutil
 import tempfile
+from urllib.error import HTTPError
+from urllib.parse import urlencode
+from urllib.request import Request, urlopen
 
 
 COMPONENTS = ("rustc-", "cargo-", "rust-std-", "llvm-tools-", "rust-src-")
@@ -46,6 +49,23 @@ def configure_action(args):
     )
     if any(action_source.count(line) != 1 for line in cache_lines):
         raise ValueError("Official SDK action cache settings changed")
+    qemu = "      uses: docker/setup-qemu-action@v4\n"
+    if action_source.count(qemu) != 1:
+        raise ValueError("Official SDK action QEMU setup changed")
+    action_source = action_source.replace(
+        qemu, qemu + "      with:\n        cache-image: false\n"
+    )
+    docker = "        docker run --rm \\\n"
+    if action_source.count(docker) != 1:
+        raise ValueError("Official SDK action Docker invocation changed")
+    action_source = action_source.replace(
+        docker, docker + "".join(
+            f"          --env {name} \\\n" for name in (
+                "RUST_CACHE_TOKEN", "RUST_CACHE_PREFIX", "RUST_CACHE_REPOSITORY",
+                "RUST_CACHE_WRITE",
+            )
+        )
+    )
     hook = (
         '\ngroup "prepare Rust toolchain cache"\n'
         'python3 /feed/.ci/rust-cache.py prepare --sdk-root "$PWD"\n'
@@ -55,7 +75,7 @@ def configure_action(args):
     for line in cache_lines:
         action_source = action_source.replace(line, "")
     action_file.write_text(action_source)
-    print("Added Rust cache hook and disabled SDK Docker layer cache")
+    print("Added Rust cache hook and disabled Docker layer and QEMU image caches")
 
 
 def prepare(args, control):
@@ -63,6 +83,20 @@ def prepare(args, control):
     rust = sdk / "feeds/packages/lang/rust"
     recipe = rust / "Makefile"
     source = recipe.read_text()
+    # Generate xz installers directly and teach the upstream install loop to
+    # unpack them, so cache saves/restores need no format conversion.
+    xz_rules = (
+        (
+            "--dist-compression-formats=gz",
+            "--dist-compression-formats=xz --set=dist.compression-profile=best",
+        ),
+        ("for targz in *.tar.gz; do", "for targz in *.tar.xz; do"),
+        ("$(STAGING_DIR_HOST)/bin/libdeflate-gzip -dc", "xz -dc"),
+    )
+    for before, after in xz_rules:
+        if source.count(before) != 1:
+            raise ValueError("SDK Rust distribution or install rules changed")
+        source = source.replace(before, after)
     pattern = r"^define Host/Compile\n(.*?)^endef$"
     matches = list(re.finditer(pattern, source, re.MULTILINE | re.DOTALL))
     if len(matches) != 1:
@@ -71,7 +105,11 @@ def prepare(args, control):
     lines = body.splitlines()
     if not lines or any(not line.rstrip().endswith("\\") for line in lines[:-1]):
         raise ValueError("SDK Rust compilation is no longer a single continued command")
-    inputs = {"namespace": json.loads((control / "context.json").read_text())}
+    inputs = {
+        "namespace": json.loads((control / "context.json").read_text()),
+        "distribution_format": "xz",
+        "compression_profile": "best",
+    }
     inputs["rust"] = {
         str(path.relative_to(rust)): digest(path)
         for path in sorted(rust.rglob("*")) if path.is_file()
@@ -88,8 +126,8 @@ def prepare(args, control):
     fingerprint = hashlib.sha256(json.dumps(inputs, sort_keys=True).encode()).hexdigest()
     write_json(control / "active.json", {"fingerprint": fingerprint})
     write_json(control / "result.json", {"save": False})
-    # Only the compile command is wrapped. Preparation, configure, stamps and
-    # Host/Install remain the upstream SDK rules, including on a cache hit.
+    # Wrap compilation while retaining upstream preparation and stamps.
+    # Installation changes only the distribution archive format to xz.
     command = f'$(PYTHON) "{control / "rust-cache.py"}"'
     build = '--build-directory "$(HOST_BUILD_DIR)"'
     replacement = (
@@ -97,6 +135,7 @@ def prepare(args, control):
         f"\t@if {command} restore {build}; then \\\n"
         "\t\t:; \\\n"
         "\telse \\\n"
+        f"\t\t{command} prune && \\\n"
         f"{body} && \\\n"
         f"\t\t{command} store {build}; \\\n"
         "\tfi\nendef"
@@ -108,6 +147,57 @@ def prepare(args, control):
 def check_components(names):
     if any(not any(name.startswith(prefix) for name in names) for prefix in COMPONENTS):
         raise ValueError("Rust distribution installers are incomplete")
+
+
+def github_request(method, endpoint):
+    request = Request(
+        "https://api.github.com/" + endpoint,
+        method=method,
+        headers={
+            "Authorization": "Bearer " + os.environ["RUST_CACHE_TOKEN"],
+            "Accept": "application/vnd.github+json",
+            "X-GitHub-Api-Version": "2022-11-28",
+        },
+    )
+    with urlopen(request, timeout=30) as response:
+        return json.load(response) if method == "GET" else None
+
+
+def prune(control):
+    """Remove obsolete caches only after restore failed, before compilation."""
+    if os.environ.get("RUST_CACHE_WRITE") == "true":
+        namespace = json.loads((control / "context.json").read_text())
+        prefix = os.environ["RUST_CACHE_PREFIX"]
+        repository = os.environ["RUST_CACHE_REPOSITORY"]
+        if (
+            not prefix.startswith("rust-toolchain-v2-")
+            or not prefix.endswith(f'-{namespace["sdk"]}-{namespace["arch"]}-')
+            or not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", repository)
+        ):
+            raise ValueError("Invalid toolchain cache cleanup scope")
+        endpoint = f"repos/{repository}/actions/caches"
+        obsolete = []
+        page = 1
+        while True:
+            query = urlencode({"key": prefix, "per_page": 100, "page": page})
+            caches = github_request("GET", endpoint + "?" + query)["actions_caches"]
+            # Collect every page before deleting, so pagination cannot skip entries.
+            obsolete.extend(cache["id"] for cache in caches if cache["key"].startswith(prefix))
+            if len(caches) < 100:
+                break
+            page += 1
+        for identifier in obsolete:
+            try:
+                github_request("DELETE", f"{endpoint}/{int(identifier)}")
+            except HTTPError as error:
+                if error.code != 404:
+                    raise
+        print(f"Deleted {len(obsolete)} previous caches for {prefix}")
+    else:
+        print("Remote cache cleanup disabled for this build")
+    cache = control.parent / ".rust-cache"
+    if cache.exists():
+        shutil.rmtree(cache)
 
 
 def restore(args, control):
@@ -126,7 +216,7 @@ def restore(args, control):
         if set(path.name for path in cache.iterdir()) != set(archives) | {"manifest.json"}:
             raise ValueError("Unexpected or missing cache files")
         for name, checksum in archives.items():
-            if not re.fullmatch(r"[A-Za-z0-9_.+-]+\.tar\.gz", name):
+            if not re.fullmatch(r"[A-Za-z0-9_.+-]+\.tar\.xz", name):
                 raise ValueError("Invalid installer filename")
             path = cache / name
             if path.is_symlink() or path.stat().st_size == 0 or digest(path) != checksum:
@@ -144,7 +234,7 @@ def restore(args, control):
 
 def store(args, control):
     source = Path(args.build_directory) / "build/dist"
-    archives = sorted(source.glob("*.tar.gz"))
+    archives = sorted(source.glob("*.tar.xz"))
     check_components([path.name for path in archives])
     cache = control.parent / ".rust-cache"
     active = json.loads((control / "active.json").read_text())
@@ -156,7 +246,7 @@ def store(args, control):
                 raise ValueError(f"Empty or invalid Rust installer: {path}")
             target = staged / path.name
             shutil.copyfile(path, target)
-            checksums[path.name] = digest(target)
+            checksums[target.name] = digest(target)
         write_json(staged / "manifest.json", {**active, "archives": checksums})
         if cache.exists():
             shutil.rmtree(cache)
@@ -182,6 +272,7 @@ def main():
     action.add_argument("--arch", required=True)
     initializer = commands.add_parser("prepare")
     initializer.add_argument("--sdk-root", required=True)
+    commands.add_parser("prune")
     for name in ("restore", "store"):
         command = commands.add_parser(name)
         command.add_argument("--build-directory", required=True)
@@ -193,6 +284,8 @@ def main():
         configure_action(args)
     elif args.command == "prepare":
         prepare(args, control)
+    elif args.command == "prune":
+        prune(control)
     elif args.command == "restore":
         raise SystemExit(restore(args, control))
     elif args.command == "store":

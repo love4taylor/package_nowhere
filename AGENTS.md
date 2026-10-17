@@ -99,9 +99,13 @@ nowhere_3.0.1-r1_aarch64_cortex-a53.ipk
 
 使用 GitHub 官方 `actions/cache/restore` 与 `actions/cache/save`，仅缓存 Rust 构建产生的分发安装包，包括 rustc、Cargo、目标标准库、LLVM tools 和 Rust 源码组件。不要缓存整个 SDK 或庞大的 Rust/LLVM 中间构建目录。
 
-缓存按运行平台、SDK、架构和缓存脚本版本隔离。恢复后再次比较 SDK 配置、工具链信息、GCC 文件与 Rust feed 规则的指纹，并逐个校验安装包 SHA-256；不匹配或损坏时重新编译。Nowhere 自身版本和打包文件不直接参与缓存键。
+关闭 `docker/setup-qemu-action` 的 `cache-image`，保留 QEMU 安装但不缓存 `tonistiigi/binfmt` 镜像。GitHub 默认会清理连续 7 天未被访问的缓存，计时依据为缓存访问时间；提交代码本身不会续期。
 
-接入代码只包装 Rust 的 `Host/Compile`，保留 SDK 原有的准备、配置、安装和 stamp 规则；上游规则结构变化时应重新核对。缓存命中时复制分发包后继续执行原有安装步骤，未命中时在源码编译成功后导出。Rust 编译完成后，即使后续 Nowhere 编译失败，也可保存工具链缓存；命中时不重复上传。每个 SDK/架构组合使用稳定的单一缓存键，不把运行编号加入键，避免每次运行复制一份工具链。官方 Action 的 Docker/BuildKit 层缓存已关闭，避免无关镜像层占用仓库缓存配额。缓存是加速手段，其保留时间受 GitHub 缓存容量和清理策略约束。
+缓存按运行平台、SDK、架构和缓存脚本版本隔离。恢复后再次比较 SDK 配置、工具链信息、GCC 文件与 Rust feed 规则的指纹，并逐个校验安装包 SHA-256；不匹配或损坏时重新编译。Nowhere 自身版本和打包文件不直接参与缓存键。将 Rust feed 的 `--dist-compression-formats=gz` 改为 `xz`，追加 `--set=dist.compression-profile=best`（xz level 9），并将安装循环改为解包 `.tar.xz`。缓存原样保存和恢复这些 xz 分发包，不再转换格式。官方 `actions/cache` 不提供关闭压缩的参数；保存步骤使用 `ZSTD_CLEVEL=1`，降低已压缩 xz 文件的外层 zstd 压缩开销。
+
+接入代码包装 Rust 的 `Host/Compile`，并调整分发格式和对应的安装解包命令；保留 SDK 原有的准备、配置及 stamp 规则，安装仍由上游安装脚本完成。上游规则结构变化时应重新核对。缓存命中时复制分发包后继续安装，未命中时在源码编译成功后导出。Rust 编译完成后，即使后续 Nowhere 编译失败，也可保存工具链缓存；命中时不重复上传。每个 SDK/架构组合使用稳定的单一缓存键，不把运行编号加入键，避免每次运行复制一份工具链。官方 Action 的 Docker/BuildKit 层缓存已关闭，避免无关镜像层占用仓库缓存配额。缓存是加速手段，其保留时间受 GitHub 缓存容量和清理策略约束。
+
+确认未命中或校验失败后，先通过 GitHub REST API 删除同一运行平台、SDK 和架构前缀下的全部旧缓存（含不同 ref 和脚本版本），再清理本地旧副本并开始编译。命中时不删除；其他 SDK/架构不受影响。缓存清理失败则停止本次编译，避免在旧缓存仍占用空间时继续生成新副本。对应 build job 需要 `actions: write`，同一 SDK/架构通过 job concurrency 串行执行，避免不同分支或 tag 相互清理正在生成的缓存。PR 只恢复缓存和验证编译，不传清理令牌、不删除或保存远端缓存。本地运行只清理本地副本。删除后若编译失败，旧缓存不会恢复。
 
 ## 检查与验证
 
@@ -125,7 +129,7 @@ actionlint .github/workflows/build.yml
 
 本仓库没有独立的单元测试套件。按改动验证实际行为：修改 `ci.py` 时检查正确与错误 tag、12 组矩阵、缺失/空/重复产物，以及 Release 完整性与 SHA-256；临时测试数据放在仓库外。
 
-修改 `rust-cache.py` 时，通过 GNU make 实际执行包装后的 `Host/Compile`，验证首次编译保存、命中跳过编译、指纹变化和损坏回退，以及编译失败的退出状态。核对官方 Action 接入位置及 Rust 安装规则保持完整。
+修改 `rust-cache.py` 时，通过 GNU make 实际执行包装后的 `Host/Compile`，验证首次编译保存、命中跳过编译和清理、指纹变化和损坏回退，以及先清理后编译的顺序。验证分页删除范围、API 失败阻止编译、PR 不写远端缓存，以及编译失败的退出状态。核对官方 Action 接入位置及 Rust 安装规则保持完整。
 
 修改 Makefile 或运行文件后，使用相应 SDK 编译并检查包内的 `/usr/bin/nowhere`、`/etc/config/nowhere`、`/etc/init.d/nowhere` 与依赖元数据。没有运行完整矩阵时，明确报告已验证范围，不把静态检查视为跨架构编译成功。
 
