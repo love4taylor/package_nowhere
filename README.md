@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="https://raw.githubusercontent.com/NodePassProject/Nowhere/v3.0.1/assets/nowhere.png" width="420" alt="Nowhere Logo">
+  <img src="https://raw.githubusercontent.com/NodePassProject/Nowhere/v3.1.0/assets/nowhere.png" width="420" alt="Nowhere Logo">
 </p>
 
 # Nowhere for OpenWrt
@@ -10,11 +10,11 @@
 
 | 项目 | 说明 |
 |---|---|
-| 上游版本 | [v3.0.1](https://github.com/NodePassProject/Nowhere/releases/tag/v3.0.1) |
-| 软件包版本 | `3.0.1`，发布修订 `1` |
+| 上游版本 | [v3.1.0](https://github.com/NodePassProject/Nowhere/releases/tag/v3.1.0) |
+| 软件包版本 | `3.1.0`，发布修订 `1` |
 | 适用系统 | OpenWrt 及满足相同包格式、目标 ABI 和运行库要求的兼容系统 |
 | 包格式 | 由目标 SDK 决定：APK（`apk`）或 IPK（`opkg`） |
-| 仓库协议 | [GPL-3.0-only](LICENSE)，与[上游声明](https://github.com/NodePassProject/Nowhere/blob/v3.0.1/Cargo.toml)一致 |
+| 仓库协议 | [GPL-3.0-only](LICENSE)，与[上游声明](https://github.com/NodePassProject/Nowhere/blob/v3.1.0/Cargo.toml)一致 |
 
 安装时需匹配目标架构和运行库 ABI，不能仅凭 APK、IPK 扩展名判断兼容性。
 
@@ -46,8 +46,8 @@ APK 使用 OpenWrt 25.12.5 SDK 构建，IPK 使用 OpenWrt 24.10.7 SDK 构建；
 附件名包含 Nowhere 版本、软件包修订和目标架构，例如：
 
 ```text
-nowhere-3.0.1-r1-aarch64_cortex-a53.apk
-nowhere_3.0.1-r1_aarch64_cortex-a53.ipk
+nowhere-3.1.0-r1-aarch64_cortex-a53.apk
+nowhere_3.1.0-r1_aarch64_cortex-a53.ipk
 ```
 
 下载所需软件包和 `SHA256SUMS` 后，可在下载目录校验：
@@ -80,7 +80,7 @@ opkg install /tmp/nowhere_*.ipk
 nowhere --version
 ```
 
-版本输出应包含 `nowhere-v3.0.1`，架构信息随目标平台变化。已有软件包会升级，`/etc/config/nowhere` 被登记为保留配置文件。
+版本输出应包含 `nowhere-v3.1.0`，架构信息随目标平台变化。已有软件包会升级，`/etc/config/nowhere` 被登记为保留配置文件。
 
 > [!NOTE]
 > 默认 Portal、Vector 和 Egress 实例均未启用。配置中的 `REPLACE_WITH_GENERATED_KEY` 是占位符，启用前需要替换。
@@ -178,7 +178,7 @@ logread -e nowhere
 | `option group` | 空 | 留空使用服务默认组；也可指定现有组 |
 | `list env` | 示例为 `NOW_TRANSPORT_MEMORY_PROFILE=throughput` | 可重复添加 `NAME=VALUE` 环境变量 |
 
-修改后执行 `uci commit nowhere` 和 `/etc/init.d/nowhere restart`。URL、密钥及环境变量的完整约束见 [上游配置参考](https://github.com/NodePassProject/Nowhere/blob/v3.0.1/docs/configuration.md)。
+修改后执行 `uci commit nowhere` 和 `/etc/init.d/nowhere restart`。URL、密钥及环境变量的完整约束见 [上游配置参考](https://github.com/NodePassProject/Nowhere/blob/v3.1.0/docs/configuration.md)。
 
 ## 多个实例
 
@@ -218,6 +218,7 @@ nowhere status
 
 | 起始版本 | 迁移说明 |
 |---|---|
+| v3.0.x | 无需迁移 URL、共享密钥或证书配置，支持与 v3.1.0 混合部署。新增 Morph TCP Prelude 认证及有界重放保护；仍保留旧 Prelude 回退，重放检查并非强制覆盖所有连接 |
 | v3.0.0 | URL、共享密钥和 telemetry 格式保持兼容。TCP Morph Prelude 默认从 `full8` 改为 `fade`；已有 `full8`、`low7` 设置仍有效 |
 | v2.x | NW2 与 NW3 不兼容，同一路径上的节点必须同步升级。将 Vector 的 `socks=` 改为 `in=`，重新核对密钥、传输路径及 Portal `out=` 设置 |
 
@@ -249,7 +250,7 @@ Morph 默认启用，连接双方需保持一致。显式关闭时在双方 URL 
 nowhere probe 'vector://KEY@relay.example/udp:2000?pin=PIN' 'example.com:443'
 ```
 
-`probe` 无需 `in=`，只验证连接建立，不发送目标应用数据。更多说明见 [运维指南](https://github.com/NodePassProject/Nowhere/blob/v3.0.1/docs/operations.md) 和 [协议文档](https://github.com/NodePassProject/Nowhere/blob/v3.0.1/docs/protocol.md)。
+`probe` 无需 `in=`，只验证连接建立，不发送目标应用数据。更多说明见 [运维指南](https://github.com/NodePassProject/Nowhere/blob/v3.1.0/docs/operations.md) 和 [协议文档](https://github.com/NodePassProject/Nowhere/blob/v3.1.0/docs/protocol.md)。
 
 ## 自行编译
 
