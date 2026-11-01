@@ -1,13 +1,13 @@
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=nowhere
-PKG_VERSION:=3.1.0
+PKG_VERSION:=3.3.0
 PKG_RELEASE:=1
 
 PKG_SOURCE_SUBDIR:=Nowhere-$(PKG_VERSION)
 PKG_SOURCE:=$(PKG_SOURCE_SUBDIR).tar.gz
 PKG_SOURCE_URL:=https://codeload.github.com/NodePassProject/Nowhere/tar.gz/refs/tags/v$(PKG_VERSION)?
-PKG_HASH:=9b5eccf28a0a4b6eabc5a0e80d45595b6c3898ecbac7b2a3de0d1d9afeaae25f
+PKG_HASH:=4e3850e9b204f92760999e217b7bf28b9e6f7b7b86e4fc7f2722c4af097c1c1d
 PKG_BUILD_DIR:=$(BUILD_DIR)/$(PKG_SOURCE_SUBDIR)
 
 PKG_LICENSE:=GPL-3.0-only
@@ -30,7 +30,7 @@ endef
 
 define Package/nowhere/description
  Nowhere relays TCP and UDP over TLS or QUIC using the NW3 protocol.
- It provides Portal relay, Vector SOCKS5 ingress and remote QUIC Egress modes.
+ It provides Portal relay, Vector SOCKS5 ingress and remote TLS/QUIC Egress modes.
 endef
 
 define Package/nowhere/conffiles
