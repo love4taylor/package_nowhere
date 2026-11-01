@@ -35,6 +35,7 @@ jobs:
       version: ${{ steps.metadata.outputs.version }}
       tag: ${{ steps.metadata.outputs.tag }}
       matrix: ${{ steps.metadata.outputs.matrix }}
+      build: ${{ steps.release_check.outputs.build }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - name: Validate version and release tag
@@ -42,9 +43,24 @@ jobs:
         run: python3 .github/scripts/ci.py metadata
       - name: Check init script syntax
         run: sh -n files/nowhere.init
+      - name: Skip branch builds covered by a release tag
+        id: release_check
+        env:
+          RELEASE_TAG: ${{ steps.metadata.outputs.tag }}
+        run: |
+          build=true
+          if [ "$GITHUB_EVENT_NAME" = push ] && [ "$GITHUB_REF_TYPE" = branch ]; then
+            refs=$(git ls-remote origin "refs/tags/$RELEASE_TAG" "refs/tags/$RELEASE_TAG^{}")
+            if printf '%s\n' "$refs" | awk -v sha="$GITHUB_SHA" '$1 == sha { found=1 } END { exit !found }'; then
+              echo "Release tag $RELEASE_TAG already covers this commit; skipping branch build."
+              build=false
+            fi
+          fi
+          printf 'build=%s\n' "$build" >> "$GITHUB_OUTPUT"
 
   build:
     needs: prepare
+    if: ${{ needs.prepare.outputs.build == 'true' }}
     name: ${{ matrix.arch }} / ${{ matrix.format }}
     runs-on: ubuntu-24.04
     timeout-minutes: 360

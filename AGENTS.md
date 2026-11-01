@@ -62,14 +62,16 @@ make package/nowhere/compile -j8 V=s
 
 发布 tag 为 `v${PKG_VERSION}-r${PKG_RELEASE}`，例如 `v3.0.1-r1`。CI 会在编译前校验 tag 与其对应提交中的 Makefile 一致。
 
-用户要求发布时，在对应变更提交并推送后执行以下命令；示例版本需按实际值替换：
+用户要求发布时，先提交变更并创建 tag，再用一次原子推送同时更新分支和 tag；示例版本及分支需按实际值替换：
 
 ```sh
 git tag v3.0.1-r1
-git push origin v3.0.1-r1
+git push --atomic origin HEAD:refs/heads/master refs/tags/v3.0.1-r1
 ```
 
 未获得用户发布指令时，不自行推送 tag 或发布 Release。
+
+分支 push 的准备任务会查询与 Makefile 对应的远端发布 tag；轻量 tag 或附注 tag 指向当前提交时，跳过分支编译，由 tag 工作流完成构建和发布。原子推送确保分支任务查询前 tag 已存在。普通分支更新、PR 和手动运行继续编译。若先完成分支测试、以后才打 tag，仍会重新进行发布构建；本流程不跨运行复用软件包 artifacts。
 
 ## CI 与产物约定
 
@@ -79,7 +81,7 @@ git push origin v3.0.1-r1
 
 | 触发方式 | 行为 |
 |---|---|
-| 分支 push 或 PR 修改 `Makefile`、`files/**`、`patches/**`、`src/**`、工作流或 CI 脚本 | 编译测试并上传 artifacts，不发布 Release |
+| 分支 push 或 PR 修改 `Makefile`、`files/**`、`patches/**`、`src/**`、工作流或 CI 脚本 | 编译测试并上传 artifacts，不发布 Release；分支提交已有对应发布 tag 时跳过编译 |
 | 仅修改 README、AGENTS.md 或 `.gitignore` | 不自动构建 |
 | `workflow_dispatch` | 编译测试，不发布 Release，包括手动选择 tag 的情况 |
 | push 匹配 `v*-r*` 的 tag | 严格校验版本，全部矩阵成功后发布 Release |
