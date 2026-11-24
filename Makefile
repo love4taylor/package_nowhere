@@ -1,13 +1,13 @@
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=nowhere
-PKG_VERSION:=3.3.0
+PKG_VERSION:=3.4.0
 PKG_RELEASE:=1
 
 PKG_SOURCE_SUBDIR:=Nowhere-$(PKG_VERSION)
 PKG_SOURCE:=$(PKG_SOURCE_SUBDIR).tar.gz
 PKG_SOURCE_URL:=https://codeload.github.com/NodePassProject/Nowhere/tar.gz/refs/tags/v$(PKG_VERSION)?
-PKG_HASH:=4e3850e9b204f92760999e217b7bf28b9e6f7b7b86e4fc7f2722c4af097c1c1d
+PKG_HASH:=e59aa7e83c9bd824bab45c6122e4ea941272f2f2c2a2de84ef9469feaf5fddf1
 PKG_BUILD_DIR:=$(BUILD_DIR)/$(PKG_SOURCE_SUBDIR)
 
 PKG_LICENSE:=GPL-3.0-only

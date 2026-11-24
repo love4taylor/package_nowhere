@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="https://raw.githubusercontent.com/NodePassProject/Nowhere/v3.3.0/assets/nowhere.png" width="420" alt="Nowhere Logo">
+  <img src="https://raw.githubusercontent.com/NodePassProject/Nowhere/v3.4.0/assets/nowhere.png" width="420" alt="Nowhere Logo">
 </p>
 
 # Nowhere for OpenWrt
@@ -10,11 +10,11 @@
 
 | 项目 | 说明 |
 |---|---|
-| 上游版本 | [v3.3.0](https://github.com/NodePassProject/Nowhere/releases/tag/v3.3.0) |
-| 软件包版本 | `3.3.0`，发布修订 `1` |
+| 上游版本 | [v3.4.0](https://github.com/NodePassProject/Nowhere/releases/tag/v3.4.0) |
+| 软件包版本 | `3.4.0`，发布修订 `1` |
 | 适用系统 | OpenWrt 及满足相同包格式、目标 ABI 和运行库要求的兼容系统 |
 | 包格式 | 由目标 SDK 决定：APK（`apk`）或 IPK（`opkg`） |
-| 仓库协议 | [GPL-3.0-only](LICENSE)，与[上游声明](https://github.com/NodePassProject/Nowhere/blob/v3.3.0/Cargo.toml)一致 |
+| 仓库协议 | [GPL-3.0-only](LICENSE)，与[上游声明](https://github.com/NodePassProject/Nowhere/blob/v3.4.0/Cargo.toml)一致 |
 
 安装时需匹配目标架构和运行库 ABI，不能仅凭 APK、IPK 扩展名判断兼容性。
 
@@ -46,8 +46,8 @@ APK 使用 OpenWrt 25.12.5 SDK 构建，IPK 使用 OpenWrt 24.10.7 SDK 构建；
 附件名包含 Nowhere 版本、软件包修订和目标架构，例如：
 
 ```text
-nowhere-3.3.0-r1-aarch64_cortex-a53.apk
-nowhere_3.3.0-r1_aarch64_cortex-a53.ipk
+nowhere-3.4.0-r1-aarch64_cortex-a53.apk
+nowhere_3.4.0-r1_aarch64_cortex-a53.ipk
 ```
 
 下载所需软件包和 `SHA256SUMS` 后，可在下载目录校验：
@@ -80,7 +80,7 @@ opkg install /tmp/nowhere_*.ipk
 nowhere --version
 ```
 
-版本输出应包含 `nowhere-v3.3.0`，架构信息随目标平台变化。已有软件包会升级，`/etc/config/nowhere` 被登记为保留配置文件。
+版本输出应包含 `nowhere-v3.4.0`，架构信息随目标平台变化。已有软件包会升级，`/etc/config/nowhere` 被登记为保留配置文件。
 
 > [!NOTE]
 > 默认 Portal、Vector 和 Egress 实例均未启用。配置中的 `REPLACE_WITH_GENERATED_KEY` 是占位符，启用前需要替换。
@@ -155,7 +155,7 @@ uci commit nowhere
 /etc/init.d/nowhere restart
 ```
 
-以上示例使用 QUIC；改为 `/tcp:2000` 可使用 TLS，Portal 和 Egress 均需升级至 v3.3.0 并启用对应监听。Egress 主动连接 Portal，无需在出口主机开放入站中继端口。一个 Portal 可接受多个 Egress，TLS 和 QUIC 注册连接共用 FIFO 队列；Egress 断开时会自动重连，Portal 不会回退到直接出口。没有可用 Egress 时，新 Flow 在 `NOW_FLOW_SETUP_TIMEOUT` 内等待注册。
+以上示例使用 QUIC；改为 `/tcp:2000` 可使用 TLS，Portal 和 Egress 均需 v3.3.0 或更新版本并启用对应监听。Egress 主动连接 Portal，无需在出口主机开放入站中继端口。一个 Portal 可接受多个 Egress，TLS 和 QUIC 注册连接共用 FIFO 队列；Egress 断开时会自动重连，Portal 不会回退到直接出口。没有可用 Egress 时，新 Flow 在 `NOW_FLOW_SETUP_TIMEOUT` 内等待注册。
 
 ### 3. 查看运行状态
 
@@ -178,7 +178,7 @@ logread -e nowhere
 | `option group` | 空 | 留空使用服务默认组；也可指定现有组 |
 | `list env` | 示例为 `NOW_TRANSPORT_MEMORY_PROFILE=throughput` | 可重复添加 `NAME=VALUE` 环境变量 |
 
-修改后执行 `uci commit nowhere` 和 `/etc/init.d/nowhere restart`。URL、密钥及环境变量的完整约束见 [上游配置参考](https://github.com/NodePassProject/Nowhere/blob/v3.3.0/docs/configuration.md)。
+修改后执行 `uci commit nowhere` 和 `/etc/init.d/nowhere restart`。URL、密钥及环境变量的完整约束见 [上游配置参考](https://github.com/NodePassProject/Nowhere/blob/v3.4.0/docs/configuration.md)。
 
 ## 多个实例
 
@@ -198,7 +198,15 @@ config instance 'vector_b'
 
 替换密钥、指纹和地址后重启服务。procd 会分别管理两个进程，应用程序可选择 1080 或 1081 端口作为 SOCKS5 入口。
 
-`NOW_TRANSPORT_MEMORY_PROFILE` 支持 `memory`、`balanced`、`throughput`，用于选择 QUIC 窗口大小；这些窗口设置并非进程内存总上限。
+`NOW_TRANSPORT_MEMORY_PROFILE` 支持 `memory`、`balanced`、`throughput`，用于选择 QUIC 窗口大小；这些窗口设置并非进程内存总上限。v3.4.0 的窗口如下（单位 MiB）：
+
+| 配置档 | 单流接收窗口 | 连接接收窗口 | 发送窗口 |
+|---|---:|---:|---:|
+| `memory` | 4 | 16 | 8 |
+| `balanced` | 4 | 16 | 16 |
+| `throughput` | 4 | 32 | 32 |
+
+`balanced` 和 `throughput` 的单流接收窗口缩小，高延迟路径上的单流吞吐量可能降低。
 
 ## 升级
 
@@ -218,7 +226,8 @@ nowhere status
 
 | 起始版本 | 迁移说明 |
 |---|---|
-| v3.1.x / v3.2.x | 现有 URL、共享密钥、证书及 QUIC Egress 配置继续有效。启用 TLS Egress 前，将 Portal 和 Egress 均升级至 v3.3.0；v3.2.0 起移除 `NOW_UDP_DATA_BUF_SIZE` |
+| v3.3.x | URL、共享密钥和证书配置保持兼容，使用默认 ChaCha20-IETF 时可逐端升级。启用 Morph AES-128-CTR 前，两端均需升级至 v3.4.0 并设置 `cipher=aes` |
+| v3.1.x / v3.2.x | 现有 URL、共享密钥、证书及 QUIC Egress 配置继续有效。启用 TLS Egress 前，将 Portal 和 Egress 均升级至 v3.3.0 或更新版本；v3.2.0 起移除 `NOW_UDP_DATA_BUF_SIZE` |
 | v3.0.x | Morph TCP 已强制要求认证 Prelude，不再接受旧格式。先升级原生 Vector 至 v3.1.0 或更新版本，再升级 Portal；第三方客户端也需支持认证 Prelude |
 | v3.0.0 | URL、共享密钥和 telemetry 格式保持兼容。TCP Morph Prelude 默认从 `full8` 改为 `fade`；已有 `full8`、`low7` 设置仍有效 |
 | v2.x | NW2 与 NW3 不兼容，同一路径上的节点必须同步升级。将 Vector 的 `socks=` 改为 `in=`，重新核对密钥、传输路径及 Portal `out=` 设置 |
@@ -235,6 +244,8 @@ list env 'NOW_MORPH_TCP_PRELUDE=full8'
 ```
 
 该选项只选择字节分布，不会恢复旧的未认证 Prelude。Morph 默认启用，连接双方需保持一致。显式关闭时在双方 URL 中设置 `morph=0`。
+
+Morph 默认使用 ChaCha20-IETF（`cipher=chacha`）。如需使用 v3.4.0 新增的 AES-128-CTR，在连接两端的 URL 中均添加 `cipher=aes`，并在分享链接及 `nowhere fingerprint` URL 中保持相同设置；协议不会自动协商或回退，两端设置不一致会导致连接失败。TLS 和 QUIC 继续负责认证与完整性保护。详见 [Cipher 扩展](https://github.com/NodePassProject/Nowhere/blob/v3.4.0/docs/cipher.md)。
 
 ## 排错
 
@@ -253,7 +264,7 @@ list env 'NOW_MORPH_TCP_PRELUDE=full8'
 nowhere probe 'vector://KEY@relay.example/udp:2000?pin=PIN' 'example.com:443'
 ```
 
-`probe` 无需 `in=`，只验证连接建立，不发送目标应用数据。更多说明见 [运维指南](https://github.com/NodePassProject/Nowhere/blob/v3.3.0/docs/operations.md) 和 [协议文档](https://github.com/NodePassProject/Nowhere/blob/v3.3.0/docs/protocol.md)。
+`probe` 无需 `in=`，只验证连接建立，不发送目标应用数据。更多说明见 [运维指南](https://github.com/NodePassProject/Nowhere/blob/v3.4.0/docs/operations.md) 和 [协议文档](https://github.com/NodePassProject/Nowhere/blob/v3.4.0/docs/protocol.md)。
 
 ## 自行编译
 
